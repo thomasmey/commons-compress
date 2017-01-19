@@ -20,12 +20,13 @@ package org.apache.commons.compress.compressors.snappy;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.PushbackInputStream;
 import java.util.Arrays;
 
+import org.apache.commons.compress.compressors.CompressorEvent;
 import org.apache.commons.compress.compressors.CompressorInputStream;
 import org.apache.commons.compress.utils.BoundedInputStream;
 import org.apache.commons.compress.utils.ByteUtils;
+import org.apache.commons.compress.utils.CountingInputStream;
 import org.apache.commons.compress.utils.IOUtils;
 
 /**
@@ -38,12 +39,14 @@ import org.apache.commons.compress.utils.IOUtils;
  */
 public class FramedSnappyCompressorInputStream extends CompressorInputStream {
 
-    /**
+    private static final String NOT_A_FRAMED_SNAPPY_STREAM = "Not a framed Snappy stream";
+
+	/**
      * package private for tests only.
      */
     static final long MASK_OFFSET = 0xa282ead8L;
 
-    private static final int STREAM_IDENTIFIER_TYPE = 0xff;
+    static final int STREAM_IDENTIFIER_TYPE = 0xff;
     static final int COMPRESSED_CHUNK_TYPE = 0;
     private static final int UNCOMPRESSED_CHUNK_TYPE = 1;
     private static final int PADDING_CHUNK_TYPE = 0xfe;
@@ -53,13 +56,11 @@ public class FramedSnappyCompressorInputStream extends CompressorInputStream {
 
     // used by FramedSnappyCompressorOutputStream as well
     static final byte[] SZ_SIGNATURE = new byte[] { //NOSONAR
-        (byte) STREAM_IDENTIFIER_TYPE, // tag
-        6, 0, 0, // length
         's', 'N', 'a', 'P', 'p', 'Y'
     };
 
     /** The underlying stream to read compressed data from */
-    private final PushbackInputStream in;
+    private final CountingInputStream in;
 
     /** The dialect to expect */
     private final FramedSnappyDialect dialect;
@@ -82,6 +83,10 @@ public class FramedSnappyCompressorInputStream extends CompressorInputStream {
             return readOneByte();
         }
     };
+
+	private int chunkCounter;
+
+	private boolean firstCall = true;
 
     /**
      * Constructs a new input stream that decompresses
@@ -120,12 +125,9 @@ public class FramedSnappyCompressorInputStream extends CompressorInputStream {
                                              final int blockSize,
                                              final FramedSnappyDialect dialect)
         throws IOException {
-        this.in = new PushbackInputStream(in, 1);
-        this.blockSize = blockSize;
+        this.in = new CountingInputStream(in);
+        this.blockSize = blockSize;	
         this.dialect = dialect;
-        if (dialect.hasStreamIdentifier()) {
-            readStreamIdentifier();
-        }
     }
 
     /** {@inheritDoc} */
@@ -206,18 +208,29 @@ public class FramedSnappyCompressorInputStream extends CompressorInputStream {
     }
 
     private void readNextBlock() throws IOException {
-        verifyLastChecksumAndReset();
-        inUncompressedChunk = false;
         final int type = readOneByte();
         if (type == -1) {
             endReached = true;
-        } else if (type == STREAM_IDENTIFIER_TYPE) {
-            in.unread(type);
-            pushedBackBytes(1);
+            return;
+        }
+
+        if(firstCall) {
+            if(dialect.hasStreamIdentifier() && type != STREAM_IDENTIFIER_TYPE) {
+              throw new IOException(NOT_A_FRAMED_SNAPPY_STREAM);
+            }
+            firstCall = false;
+        } else {
+            verifyLastChecksumAndReset();
+            inUncompressedChunk = false;
+        }
+
+        if (type == STREAM_IDENTIFIER_TYPE) {
+            fireNewChunkEvent(type);
             readStreamIdentifier();
             readNextBlock();
         } else if (type == PADDING_CHUNK_TYPE
                    || (type > MAX_UNSKIPPABLE_TYPE && type <= MAX_SKIPPABLE_TYPE)) {
+            fireNewChunkEvent(type);
             skipBlock();
             readNextBlock();
         } else if (type >= MIN_UNSKIPPABLE_TYPE && type <= MAX_UNSKIPPABLE_TYPE) {
@@ -225,10 +238,12 @@ public class FramedSnappyCompressorInputStream extends CompressorInputStream {
                                   + " (hex " + Integer.toHexString(type) + ")"
                                   + " detected.");
         } else if (type == UNCOMPRESSED_CHUNK_TYPE) {
+            fireNewChunkEvent(type);
             inUncompressedChunk = true;
             uncompressedBytesRemaining = readSize() - 4 /* CRC */;
             expectedChecksum = unmask(readCrc());
         } else if (type == COMPRESSED_CHUNK_TYPE) {
+            fireNewChunkEvent(type);
             final boolean expectChecksum = dialect.usesChecksumWithCompressedChunks();
             final long size = readSize() - (expectChecksum ? 4l : 0l);
             if (expectChecksum) {
@@ -245,6 +260,11 @@ public class FramedSnappyCompressorInputStream extends CompressorInputStream {
             throw new IOException("unknown chunk type " + type
                                   + " detected.");
         }
+    }
+
+    private void fireNewChunkEvent(int type) {
+        CompressorEvent e = new CompressorEvent(this, CompressorEvent.EventType.NEW_BLOCK, chunkCounter++, (in.getBytesRead() - 1 ) * 8);
+        fireCompressorEvent(e);
     }
 
     private long readCrc() throws IOException {
@@ -279,11 +299,15 @@ public class FramedSnappyCompressorInputStream extends CompressorInputStream {
     }
 
     private void readStreamIdentifier() throws IOException {
-        final byte[] b = new byte[10];
+        final int size = readSize();
+        if (SZ_SIGNATURE.length != size) {
+            throw new IOException(NOT_A_FRAMED_SNAPPY_STREAM);
+        }
+        final byte[] b = new byte[size];
         final int read = IOUtils.readFully(in, b);
         count(read);
-        if (10 != read || !matches(b, 10)) {
-            throw new IOException("Not a framed Snappy stream");
+        if (!Arrays.equals(b, SZ_SIGNATURE)) {
+            throw new IOException(NOT_A_FRAMED_SNAPPY_STREAM);
         }
     }
 
@@ -315,17 +339,20 @@ public class FramedSnappyCompressorInputStream extends CompressorInputStream {
      */
     public static boolean matches(final byte[] signature, final int length) {
 
-        if (length < SZ_SIGNATURE.length) {
+        if(length < 10 || signature.length < 10)
+            return false;
+
+        final char type = (char) (signature[0] & 0xff);
+        if(type != STREAM_IDENTIFIER_TYPE)
+            return false;
+
+        final int size = (int) ByteUtils.fromLittleEndian(signature, 1, 3);
+
+        if (SZ_SIGNATURE.length != size) {
             return false;
         }
 
-        byte[] shortenedSig = signature;
-        if (signature.length > SZ_SIGNATURE.length) {
-            shortenedSig = new byte[SZ_SIGNATURE.length];
-            System.arraycopy(signature, 0, shortenedSig, 0, SZ_SIGNATURE.length);
-        }
-
-        return Arrays.equals(shortenedSig, SZ_SIGNATURE);
+        return Arrays.equals(Arrays.copyOfRange(signature, 4, 4 + SZ_SIGNATURE.length), SZ_SIGNATURE);
     }
 
 }

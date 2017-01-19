@@ -29,6 +29,7 @@ import java.io.InputStream;
  */
 public class CountingInputStream extends FilterInputStream {
     private long bytesRead;
+    private long bytesReadMark;
 
     public CountingInputStream(final InputStream in) {
         super(in);
@@ -60,10 +61,12 @@ public class CountingInputStream extends FilterInputStream {
      *
      * @param read the number of bytes read
      */
-    protected final void count(final long read) {
+    protected final long count(final long read) {
         if (read != -1) {
             bytesRead += read;
+            return read;
         }
+        return 0;
     }
 
     /**
@@ -72,5 +75,22 @@ public class CountingInputStream extends FilterInputStream {
      */
     public long getBytesRead() {
         return bytesRead;
+    }
+
+    @Override
+    public long skip(long n) throws IOException {
+        return count(super.skip(n));
+    }
+
+    @Override
+    public synchronized void mark(int readlimit) {
+        super.mark(readlimit);
+        bytesReadMark = bytesRead;
+    }
+
+    @Override
+    public synchronized void reset() throws IOException {
+        super.reset();
+        bytesRead = bytesReadMark;
     }
 }

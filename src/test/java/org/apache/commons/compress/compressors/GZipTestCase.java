@@ -18,7 +18,9 @@
  */
 package org.apache.commons.compress.compressors;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.fail;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -28,6 +30,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.zip.Deflater;
 import java.util.zip.GZIPInputStream;
 
@@ -271,6 +275,7 @@ public final class GZipTestCase extends AbstractTestCase {
 
         final GzipCompressorInputStream input =
             new GzipCompressorInputStream(new ByteArrayInputStream(bout.toByteArray()));
+        input.read();
         input.close();
         final GzipParameters readParams = input.getMetaData();
         assertEquals(Deflater.BEST_COMPRESSION, readParams.getCompressionLevel());
@@ -278,5 +283,47 @@ public final class GZipTestCase extends AbstractTestCase {
         assertEquals(13, readParams.getOperatingSystem());
         assertEquals("test3.xml", readParams.getFilename());
         assertEquals("Umlaute möglich?", readParams.getComment());
+    }
+
+    @Test
+    public void testCOMPRESS207Listeners() throws Exception {
+        final List<Integer> memberNumbers = new ArrayList<Integer>();
+        final List<Long> memberPositions = new ArrayList<Long>();
+
+        // see http://samtools.github.io/hts-specs/SAMv1.pdf
+        File inputFile = getFile("COMPRESS-207.bgzf");
+        try (
+            FileInputStream fInputStream = new FileInputStream(inputFile);
+            final GzipCompressorInputStream in = new GzipCompressorInputStream(fInputStream, true);
+            ) {
+            CompressorEventListener memberListener = new CompressorEventListener() {
+
+                public void notify(CompressorEvent e) {
+                    assertSame(in, e.getSource());
+                    switch(e.getEventType()) {
+                    case NEW_BLOCK:
+                    case NEW_STREAM:
+                        assertEquals(0, 1);
+                        break;
+                    case NEW_MEMBER:
+                        memberNumbers.add(e.getEventCounter());
+                        memberPositions.add(e.getBitsProcessed());
+                        break;
+                    }
+                }
+            };
+            in.addCompressorEventListener(memberListener);
+            while(in.read() >= 0);
+        }
+
+        assertEquals(3, memberNumbers.size());
+        for (int i = 0; i < 3; i++) {
+            assertEquals(i, memberNumbers.get(i).intValue());
+        }
+
+        assertEquals(3, memberPositions.size());
+        assertEquals(Long.valueOf(0), memberPositions.get(0));
+        assertEquals(Long.valueOf(55 * 8), memberPositions.get(1));
+        assertEquals(Long.valueOf(110 * 8), memberPositions.get(2));
     }
 }

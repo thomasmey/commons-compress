@@ -19,7 +19,60 @@
 package org.apache.commons.compress.compressors;
 
 import java.io.OutputStream;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public abstract class CompressorOutputStream extends OutputStream {
-    // TODO
+
+    private long bytesWritten = 0;
+    private final List<CompressorEventListener> listeners =
+        new CopyOnWriteArrayList<CompressorEventListener>();
+
+    /**
+     * Adds a listener that is notified of compression progress.
+     *
+     * <p>Not all streams support progress notifications.</p>
+     *
+     * @param l the listener to add
+     */
+    public void addCompressorEventListener(CompressorEventListener l) {
+        listeners.add(l);
+    }
+
+    /**
+     * Removes a listener that is notified of compression progress.
+     *
+     * @param l the listener to remove
+     */
+    public void removeCompressorEventListener(CompressorEventListener l) {
+        listeners.remove(l);
+    }
+
+    /**
+     * Notifies all listeners of progress.
+     *
+     * @param blockNumber number of the block that is getting processed now
+     */
+    protected void fireCompressorEvent(CompressorEvent event) {
+        for (CompressorEventListener l : listeners) {
+            l.notify(event);
+        }
+    }
+
+    /**
+     * Increments the counter of already written bytes.
+     *
+     * @param written the number of bytes written
+     */
+    protected void count(long written) {
+        bytesWritten += written;
+    }
+
+    /**
+     * Returns the current number of bytes written from this stream.
+     * @return the number of written bytes
+     */
+    public long getBytesWritten() {
+        return bytesWritten;
+    }
 }

@@ -114,6 +114,8 @@ public final class FramedSnappyTestCase
         }
         long start = System.currentTimeMillis();
         final File outputSz = new File(dir, input.getName() + ".sz");
+        outputSz.deleteOnExit();
+
         try (FileInputStream is = new FileInputStream(input);
              FileOutputStream os = new FileOutputStream(outputSz);
              CompressorOutputStream sos = new CompressorStreamFactory()
@@ -136,6 +138,8 @@ public final class FramedSnappyTestCase
     private void testRoundtrip(File input)  throws Exception {
         long start = System.currentTimeMillis();
         final File outputSz = new File(dir, input.getName() + ".sz");
+        outputSz.deleteOnExit();
+
         try (FileInputStream is = new FileInputStream(input);
              FileOutputStream os = new FileOutputStream(outputSz);
              CompressorOutputStream sos = new CompressorStreamFactory()

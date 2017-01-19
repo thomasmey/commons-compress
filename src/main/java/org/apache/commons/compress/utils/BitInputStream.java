@@ -150,4 +150,8 @@ public class BitInputStream implements Closeable {
         }
         return false;
     }
+
+    public int getBitsCached() {
+       return bitsCachedSize;
+    }
 }

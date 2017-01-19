@@ -29,9 +29,11 @@ import java.io.InputStream;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 
+import org.apache.commons.compress.compressors.CompressorEvent;
 import org.apache.commons.compress.compressors.CompressorInputStream;
 import org.apache.commons.compress.utils.BitInputStream;
 import org.apache.commons.compress.utils.CloseShieldFilterInputStream;
+import org.apache.commons.compress.utils.CountingInputStream;
 
 /**
  * An input stream that decompresses from the BZip2 format to be read as any other stream.
@@ -64,8 +66,10 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
     private int nInUse;
 
     private BitInputStream bin;
+    private CountingInputStream cin;
     private final boolean decompressConcatenated;
 
+    private static final int SOF = -1;
     private static final int EOF = 0;
     private static final int START_BLOCK_STATE = 1;
     private static final int RAND_PART_A_STATE = 2;
@@ -75,7 +79,7 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
     private static final int NO_RAND_PART_B_STATE = 6;
     private static final int NO_RAND_PART_C_STATE = 7;
 
-    private int currentState = START_BLOCK_STATE;
+    private int currentState = SOF;
 
     private int storedBlockCRC, storedCombinedCRC;
     private int computedBlockCRC, computedCombinedCRC;
@@ -92,6 +96,8 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
     private int su_tPos;
     private char su_z;
 
+    private int currentBlockNo, currentStreamNo;
+
     /**
      * All memory intensive stuff. This field is initialized by initBlock().
      */
@@ -99,7 +105,7 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
 
     /**
      * Constructs a new BZip2CompressorInputStream which decompresses bytes
-     * read from the specified stream. This doesn't suppprt decompressing
+     * read from the specified stream. This doesn't support decompressing
      * concatenated .bz2 files.
      *
      * @param in the InputStream from which this object should be created
@@ -127,12 +133,9 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
      *             if {@code in == null}, the stream content is malformed, or an I/O error occurs.
      */
     public BZip2CompressorInputStream(final InputStream in, final boolean decompressConcatenated) throws IOException {
-        this.bin = new BitInputStream(in == System.in ? new CloseShieldFilterInputStream(in) : in,
-            ByteOrder.BIG_ENDIAN);
+        this.cin = new CountingInputStream(in == System.in ? new CloseShieldFilterInputStream(in) : in);
+        this.bin = new BitInputStream(cin, ByteOrder.BIG_ENDIAN);
         this.decompressConcatenated = decompressConcatenated;
-
-        init(true);
-        initBlock();
     }
 
     @Override
@@ -202,7 +205,16 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
         case EOF:
             return -1;
 
+        case SOF:
+            if(init(true)) {
+                currentState = START_BLOCK_STATE;
+            } else {
+                currentState = EOF;
+            }
+            return read0();
+
         case START_BLOCK_STATE:
+            initBlock();
             return setupBlock();
 
         case RAND_PART_A_STATE:
@@ -240,7 +252,12 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
 
         if (!isFirstStream) {
             bin.clearBitCache();
+            currentBlockNo = 0;
         }
+
+        long currBlockPosition = cin.getBytesRead() * 8;
+        CompressorEvent event = new CompressorEvent(this, CompressorEvent.EventType.NEW_STREAM, currentStreamNo++, currBlockPosition);
+        fireCompressorEvent(event);
 
         final int magic0 = readNextByte(this.bin);
         if (magic0 == -1 && !isFirstStream) {
@@ -309,6 +326,11 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
             this.currentState = EOF;
             throw new IOException("bad block header");
         }
+
+        long currBlockPosition = cin.getBytesRead() * 8 - 48 - bin.getBitsCached();
+        CompressorEvent event = new CompressorEvent(this, CompressorEvent.EventType.NEW_BLOCK, currentBlockNo++, currBlockPosition);
+        fireCompressorEvent(event);
+
         this.storedBlockCRC = bsGetInt(bin);
         this.blockRandomised = bsR(bin, 1) == 1;
 
@@ -320,7 +342,6 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
             this.data = new Data(this.blockSize100k);
         }
 
-        // currBlockNo++;
         getAndMoveToFrontDecode();
 
         this.crc.initialiseCRC();

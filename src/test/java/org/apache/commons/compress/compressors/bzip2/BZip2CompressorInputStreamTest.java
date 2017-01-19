@@ -33,6 +33,7 @@ public class BZip2CompressorInputStreamTest {
     public void shouldThrowAnIOExceptionWhenAppliedToAZipFile() throws Exception {
         try (FileInputStream in = new FileInputStream(getFile("bla.zip"))) {
             BZip2CompressorInputStream bis = new BZip2CompressorInputStream(in);
+            bis.read();
             bis.close();
         }
     }

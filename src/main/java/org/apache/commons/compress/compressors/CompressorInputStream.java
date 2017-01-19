@@ -19,9 +19,13 @@
 package org.apache.commons.compress.compressors;
 
 import java.io.InputStream;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public abstract class CompressorInputStream extends InputStream {
     private long bytesRead = 0;
+    private final List<CompressorEventListener> listeners =
+        new CopyOnWriteArrayList<CompressorEventListener>();
 
     /**
      * Increments the counter of already read bytes.
@@ -76,5 +80,38 @@ public abstract class CompressorInputStream extends InputStream {
      */
     public long getBytesRead() {
         return bytesRead;
+    }
+
+    /**
+     * Adds a listener that is notified of decompression progress.
+     *
+     * <p>Not all streams support progress notifications.</p>
+     *
+     * @param l the listener to add
+     */
+    public void addCompressorEventListener(CompressorEventListener l) {
+        listeners.add(l);
+    }
+
+    /**
+     * Removes a listener that is notified of decompression progress.
+     *
+     * @param l the listener to remove
+     */
+    public void removeCompressorEventListener(CompressorEventListener l) {
+        listeners.remove(l);
+    }
+
+    /**
+     * Notifies all listeners of an compressor event
+     *
+     * @param eventCounter number of the block that is getting processed now
+     * @param streamNumer number of the stream that is getting
+     *        processed now
+     */
+    protected void fireCompressorEvent(CompressorEvent event) {
+        for (CompressorEventListener l : listeners) {
+            l.notify(event);
+        }
     }
 }

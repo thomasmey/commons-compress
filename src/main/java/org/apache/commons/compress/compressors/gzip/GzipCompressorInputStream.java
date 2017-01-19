@@ -18,21 +18,23 @@
  */
 package org.apache.commons.compress.compressors.gzip;
 
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.EOFException;
-import java.io.InputStream;
 import java.io.DataInput;
 import java.io.DataInputStream;
-import java.io.BufferedInputStream;
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.zip.CRC32;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
-import java.util.zip.CRC32;
 
+import org.apache.commons.compress.compressors.CompressorEvent;
 import org.apache.commons.compress.compressors.CompressorInputStream;
 import org.apache.commons.compress.utils.ByteUtils;
 import org.apache.commons.compress.utils.CharsetNames;
+import org.apache.commons.compress.utils.CountingInputStream;
 
 /**
  * Input stream that decompresses .gz files.
@@ -59,7 +61,7 @@ public class GzipCompressorInputStream extends CompressorInputStream {
     private static final int FRESERVED = 0xE0;
 
     // Compressed input stream, possibly wrapped in a BufferedInputStream
-    private final InputStream in;
+    private final CountingInputStream in;
 
     // True if decompressing multi member streams.
     private final boolean decompressConcatenated;
@@ -83,6 +85,8 @@ public class GzipCompressorInputStream extends CompressorInputStream {
     private final byte[] oneByte = new byte[1];
 
     private final GzipParameters parameters = new GzipParameters();
+    private int currentMemberNo;
+    private boolean firstCall = true;
 
     /**
      * Constructs a new input stream that decompresses gzip-compressed data
@@ -128,13 +132,11 @@ public class GzipCompressorInputStream extends CompressorInputStream {
         // Mark support is strictly needed for concatenated files only,
         // but it's simpler if it is always available.
         if (inputStream.markSupported()) {
-            in = inputStream;
+            in = new CountingInputStream(inputStream);
         } else {
-            in = new BufferedInputStream(inputStream);
+            in = new CountingInputStream(new BufferedInputStream(inputStream));
         }
-
         this.decompressConcatenated = decompressConcatenated;
-        init(true);
     }
 
     /**
@@ -159,6 +161,10 @@ public class GzipCompressorInputStream extends CompressorInputStream {
         if (magic0 == -1 && !isFirstMember) {
             return false;
         }
+
+        long currBlockPosition = (in.getBytesRead() - 2) * 8;
+        CompressorEvent event = new CompressorEvent(this, CompressorEvent.EventType.NEW_MEMBER, currentMemberNo++, currBlockPosition);
+        fireCompressorEvent(event);
 
         if (magic0 != 31 || magic1 != 139) {
             throw new IOException(isFirstMember
@@ -256,6 +262,10 @@ public class GzipCompressorInputStream extends CompressorInputStream {
      */
     @Override
     public int read(final byte[] b, int off, int len) throws IOException {
+        if (firstCall) {
+            init(true);
+            firstCall = false;
+        }
         if (endReached) {
             return -1;
         }

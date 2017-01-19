@@ -75,10 +75,16 @@ public class FramedSnappyCompressorOutputStream extends CompressorOutputStream {
         this.out = out;
         this.params = params;
         consumer = new ByteUtils.OutputStreamByteConsumer(out);
-        out.write(FramedSnappyCompressorInputStream.SZ_SIGNATURE);
+        writeChunk(FramedSnappyCompressorInputStream.STREAM_IDENTIFIER_TYPE, FramedSnappyCompressorInputStream.SZ_SIGNATURE);
     }
 
-    @Override
+    private void writeChunk(int type, byte[] data) throws IOException {
+        out.write(type);
+        writeLittleEndian(3, data.length);
+        out.write(data);
+    }
+
+	@Override
     public void write(int b) throws IOException {
         oneByte[0] = (byte) (b & 0xff);
         write(oneByte);

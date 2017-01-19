@@ -18,13 +18,16 @@
  */
 package org.apache.commons.compress.compressors;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.commons.compress.AbstractTestCase;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
@@ -113,4 +116,49 @@ public final class BZip2TestCase extends AbstractTestCase {
         }
     }
 
+    @Test
+    public void testCOMPRESS207Listeners() throws Exception {
+        final List<Integer> blockNumbers = new ArrayList<Integer>();
+        final List<Long> blockPositions = new ArrayList<Long>();
+
+        File inputFile = getFile("COMPRESS-207.bz2");
+        try (
+            FileInputStream fInputStream = new FileInputStream(inputFile);
+            final BZip2CompressorInputStream in = new BZip2CompressorInputStream(fInputStream);
+            ) {
+            CompressorEventListener blockListener = new CompressorEventListener() {
+
+                public void notify(CompressorEvent e) {
+                    assertSame(in, e.getSource());
+                    switch(e.getEventType()) {
+                    case NEW_BLOCK:
+                        blockNumbers.add(e.getEventCounter());
+                        blockPositions.add(e.getBitsProcessed());
+                        break;
+                    case NEW_STREAM:
+                        assertEquals(1, 1);
+                        break;
+                    default:
+                        assertEquals("Unknown event type!", false, true);
+                        break;
+                    }
+                }
+            };
+            in.addCompressorEventListener(blockListener);
+            while(in.read() >= 0);
+        }
+
+        assertEquals(5, blockNumbers.size());
+        System.err.println(blockNumbers);
+        for (int i = 0; i < 5; i++) {
+            assertEquals(i, blockNumbers.get(i).intValue());
+        }
+
+        assertEquals(5, blockPositions.size());
+        assertEquals(Long.valueOf(32), blockPositions.get(0));
+        assertEquals(Long.valueOf(3662121), blockPositions.get(1));
+        assertEquals(Long.valueOf(7325105), blockPositions.get(2));
+        assertEquals(Long.valueOf(10986873), blockPositions.get(3));
+        assertEquals(Long.valueOf(14650440), blockPositions.get(4));
+    }
 }

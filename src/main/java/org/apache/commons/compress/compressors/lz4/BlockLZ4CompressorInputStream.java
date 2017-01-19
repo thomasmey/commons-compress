@@ -21,6 +21,7 @@ package org.apache.commons.compress.compressors.lz4;
 import java.io.IOException;
 import java.io.InputStream;
 
+import org.apache.commons.compress.compressors.CompressorEvent;
 import org.apache.commons.compress.compressors.lz77support.AbstractLZ77CompressorInputStream;
 import org.apache.commons.compress.utils.ByteUtils;
 
@@ -65,6 +66,9 @@ public class BlockLZ4CompressorInputStream extends AbstractLZ77CompressorInputSt
         case EOF:
             return -1;
         case NO_BLOCK: // NOSONAR - fallthrough intended
+            CompressorEvent event = new CompressorEvent(this, CompressorEvent.EventType.NEW_BLOCK, 0, getBytesRead());
+            fireCompressorEvent(event);
+
             readSizes();
             /*FALLTHROUGH*/
         case IN_LITERAL:
