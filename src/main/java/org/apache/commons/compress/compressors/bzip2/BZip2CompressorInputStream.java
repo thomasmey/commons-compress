@@ -951,4 +951,13 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
 
         return true;
     }
+
+    public void resetBlock(byte remain) {
+        try {
+            bin.clearBitCache();
+            bin.readBits(remain);
+        } catch (IOException e) {
+        }
+        currentState = START_BLOCK_STATE;
+    }
 }
