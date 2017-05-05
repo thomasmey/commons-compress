@@ -23,7 +23,7 @@ package org.apache.commons.compress.compressors.brotli;
  * @ThreadSafe
  * @since 1.14
  */
-public class BrotliUtils {
+public final class BrotliUtils {
 
     static enum CachedAvailability {
         DONT_CACHE, CACHED_AVAILABLE, CACHED_UNAVAILABLE
