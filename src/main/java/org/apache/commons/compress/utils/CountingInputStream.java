@@ -93,4 +93,9 @@ public class CountingInputStream extends FilterInputStream {
         super.reset();
         bytesRead = bytesReadMark;
     }
+
+    public synchronized void resetBytesRead() {
+        bytesRead = 0;
+        bytesReadMark = 0;
+    }
 }

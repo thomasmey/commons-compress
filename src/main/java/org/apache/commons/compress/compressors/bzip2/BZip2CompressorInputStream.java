@@ -953,6 +953,11 @@ public class BZip2CompressorInputStream extends CompressorInputStream implements
     }
 
     public void resetBlock(byte remain) {
+        resetBytesRead();
+        cin.resetBytesRead();
+        currentBlockNo = 0;
+        currentStreamNo = 0;
+
         try {
             bin.clearBitCache();
             bin.readBits(remain);

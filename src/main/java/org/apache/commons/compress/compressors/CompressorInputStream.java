@@ -51,6 +51,10 @@ public abstract class CompressorInputStream extends InputStream {
         }
     }
 
+    protected void resetBytesRead() {
+        bytesRead = 0;
+    }
+
     /**
      * Decrements the counter of already read bytes.
      *
